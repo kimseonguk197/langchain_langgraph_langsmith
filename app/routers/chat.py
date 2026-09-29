@@ -2,6 +2,7 @@
 from fastapi import APIRouter, Depends, status
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 import httpx
+from sqlalchemy.orm import Session
 
 from app import models, schemas
 from app.dependencies import get_db, get_current_member
@@ -21,6 +22,7 @@ from app.ai.rag.semantic_cache import semantic_cache
 from app.ai.langgraph.main_graph import run_chat_graph
 from app.ai.langgraph.main_graph import run_chat_graph_hitl
 from langsmith import traceable 
+from sqlalchemy.orm import Session
 
 router = APIRouter(prefix="/chats", tags=["chat"])
 
