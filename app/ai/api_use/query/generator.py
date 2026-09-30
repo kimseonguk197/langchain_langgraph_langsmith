@@ -34,33 +34,6 @@ _SQL_RULES = (
     "5. 모든 테이블 조회 시 del_yn = 'N' 조건을 반드시 포함하세요."
 )
 
-#  SQL 생성 프롬프트 템플릿
-SQL_GENERATION_PROMPT = ChatPromptTemplate.from_messages([
-(
-    "system",
-    "사용자의 자연어 질문을 PostgreSQL SELECT 문으로 변환하세요.\n\n"
-    "## 데이터베이스 스키마\n{schema}\n\n"
-    + _SQL_RULES + "\n\n"
-    "## 참고 예시\n{examples}\n\n"
-    "이제 아래 질문에 대한 SQL을 생성하세요.",
-),
-("user", "{user_message}"),
-])
-
-#  SQL 수정 프롬프트 (자가 교정 / Self-Correction) : LLM이 잘못된 SQL을 생성했을 때, 오류 메시지를 다시 LLM에 전달해 스스로 수정하도록 요청하는 기법
-SQL_FIX_PROMPT = ChatPromptTemplate.from_messages([
-    (
-        "system",
-        "아래 SQL 쿼리를 실행했을 때 오류가 발생했습니다. 오류를 분석하고 올바른 SQL로 수정하세요.\n\n"
-        "## 데이터베이스 스키마\n{schema}\n\n"
-        + _SQL_RULES + "\n\n"
-        "## 원본 SQL\n{original_sql}\n\n"
-        "## 발생한 오류 메시지\n{error_message}\n\n"
-        "위 오류를 수정한 올바른 SQL을 출력하세요.",
-    ),
-    ("user", "수정된 SQL을 생성해주세요."),
-])
-
 from langchain_ollama import ChatOllama
 
 llm_classify = ChatOllama(
@@ -72,7 +45,19 @@ llm_classify = ChatOllama(
 def generate_sql(user_message: str) -> str:
     relevant_tables = _select_relevant_tables(user_message)
     schema = get_schema_context_by_tables(relevant_tables)
-    chain = SQL_GENERATION_PROMPT | llm_sql
+    #  SQL 생성 프롬프트 템플릿
+    prompt = ChatPromptTemplate.from_messages([
+    (
+        "system",
+        "사용자의 자연어 질문을 PostgreSQL SELECT 문으로 변환하세요.\n\n"
+        "## 데이터베이스 스키마\n{schema}\n\n"
+        + _SQL_RULES + "\n\n"
+        "## 참고 예시\n{examples}\n\n"
+        "이제 아래 질문에 대한 SQL을 생성하세요.",
+    ),
+    ("user", "{user_message}"),
+    ])
+    chain = prompt | llm_sql
     
     response = chain.invoke({
         "schema": schema,
@@ -109,7 +94,20 @@ def fix_sql(original_sql: str, error_message: str) -> str:
     # schema = get_schema_context()
     relevant_tables = _tables_from_sql(original_sql)
     schema = get_schema_context_by_tables(relevant_tables)
-    chain = SQL_FIX_PROMPT | llm_sql | StrOutputParser()
+    #  SQL 수정 프롬프트 (자가 교정 / Self-Correction) : LLM이 잘못된 SQL을 생성했을 때, 오류 메시지를 다시 LLM에 전달해 스스로 수정하도록 요청하는 기법
+    prompt = ChatPromptTemplate.from_messages([
+        (
+            "system",
+            "아래 SQL 쿼리를 실행했을 때 오류가 발생했습니다. 오류를 분석하고 올바른 SQL로 수정하세요.\n\n"
+            "## 데이터베이스 스키마\n{schema}\n\n"
+            + _SQL_RULES + "\n\n"
+            "## 원본 SQL\n{original_sql}\n\n"
+            "## 발생한 오류 메시지\n{error_message}\n\n"
+            "위 오류를 수정한 올바른 SQL을 출력하세요.",
+        ),
+        ("user", "수정된 SQL을 생성해주세요."),
+    ])
+    chain = prompt | llm_sql | StrOutputParser()
     fixed_sql = chain.invoke({
         "schema": schema,
         "original_sql": original_sql,
