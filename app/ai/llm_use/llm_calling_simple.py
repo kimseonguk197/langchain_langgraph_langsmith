@@ -61,7 +61,10 @@ def classify_message(message: str) -> str:
     response = client.chat.completions.create(
         # temperature는 분류 작업에 맞는 낮은 값으로 설정. 기본값은 1
         model="gpt-4.1-mini",
-        messages=[{"role": "user", "content": message}],
+        messages=[
+            # {"role": "system","content": "사용자의 질문을 분석하여 가장 적절한 tool을 선택하세요."},
+            {"role": "user", "content": message}
+        ],
         tools=TOOLS,
         tool_choice="auto",
         temperature=0

@@ -91,7 +91,6 @@ def _select_relevant_tables(user_message: str) -> list[str]:
 
 # 실행 실패한 SQL을 LLM을 통해 자가 교정(Self-Correction)
 def fix_sql(original_sql: str, error_message: str) -> str:
-    # schema = get_schema_context()
     relevant_tables = _tables_from_sql(original_sql)
     schema = get_schema_context_by_tables(relevant_tables)
     #  SQL 수정 프롬프트 (자가 교정 / Self-Correction) : LLM이 잘못된 SQL을 생성했을 때, 오류 메시지를 다시 LLM에 전달해 스스로 수정하도록 요청하는 기법

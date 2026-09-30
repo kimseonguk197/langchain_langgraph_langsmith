@@ -21,7 +21,7 @@ def process_api_request(message: str, db: Session, member_id: int) -> str:
     # 2)기존API활용 작업(insert, update 등)
     elif intent == "ACTION":
         return call_action_pipeline(message, db, member_id)
-    # 3)DB 작업 없는 일반 LLM응답
+    # 3)일반 LLM응답
     else:
         return generate_general_response(message)
 
