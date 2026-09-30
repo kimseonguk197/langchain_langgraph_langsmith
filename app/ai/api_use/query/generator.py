@@ -130,17 +130,7 @@ def _tables_from_sql(sql: str) -> list[str]:
 #    1. del_yn, 정렬, limit 등 기본 조회 예시
 #    2. join, 집계함수 등 복잡한 쿼리 예시
 FEW_SHOT_EXAMPLES = """
-[예시 1 - 단순 조건 조회]
-질문: 나이가 40살 이상인 회원 목록을 알려줘
-SQL:
-SELECT id, email, name, age, created_at
-FROM members
-WHERE age >= 40
-  AND del_yn = 'N'
-ORDER BY age DESC
-LIMIT 100;
-
-[예시 2 - 개인 데이터 조회 (:current_member_id 필수)]
+[예시 1 - 개인 데이터 조회 (:current_member_id 필수)]
 질문: 내가 주문한 상품 목록을 보여줘
 SQL:
 SELECT o.id, p.name AS product_name, p.category, p.price, o.quantity,
@@ -153,7 +143,7 @@ WHERE o.member_id = :current_member_id
 ORDER BY o.created_at DESC
 LIMIT 100;
 
-[예시 3 - 집계 함수 + 날짜 필터 + 개인 데이터]
+[예시 2 - 집계 함수 + 날짜 필터 + 개인 데이터]
 질문: 내가 최근 1달 동안 주문한 총금액이 얼마야?
 SQL:
 SELECT ROUND(SUM(p.price * o.quantity)) AS total_amount
