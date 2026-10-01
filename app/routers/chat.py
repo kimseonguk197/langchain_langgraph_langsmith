@@ -112,18 +112,20 @@ def classify_message_n8n(message: str, token: str) -> str:
 from app.ai.langgraph.parallel_reducer_streaming import sandbox_graph
 import json
 from fastapi.responses import StreamingResponse
-@router.get("/reducer-streaming")
-def test_reducer():
+@router.get("/reducer")
+async def test_reducer():
 
-    result = sandbox_graph.invoke({"contexts": []})
+    result = await sandbox_graph.ainvoke({"contexts": []})
     return {
         "contexts": "\n".join(result["contexts"])
     }
 
-    # async def event_generator():
-    #     async for chunk in sandbox_graph.astream({"contexts": []}, stream_mode="updates"):
-    #         data = json.dumps(chunk, ensure_ascii=False)
-    #         yield f"data: {data}\n\n"
-    #     yield "data: [DONE]\n\n"
+@router.get("/streaming")
+async def test_streaming():
+    async def event_generator():
+        async for chunk in sandbox_graph.astream({"contexts": []}, stream_mode="updates"):
+            data = json.dumps(chunk, ensure_ascii=False)
+            yield f"data: {data}\n\n"
+        yield "data: [DONE]\n\n"
 
-    # return StreamingResponse(event_generator(), media_type="text/event-stream")
+    return StreamingResponse(event_generator(), media_type="text/event-stream")
