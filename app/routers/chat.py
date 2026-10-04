@@ -64,7 +64,8 @@ def create_chat(
             # history = load_chat_history(current_member.id, db)
             # response_text = generate_response_langchain_memory(body.message, context, history)
         else:
-            response_text = generate_general_response(body.message)
+            response_text = generate_response(body.message)
+            # response_text = generate_general_response(body.message)
 
         # redis stack에 질문/응답을 저장
         # store: member_id 포함 (flush_by_member로 사용자별 선택 삭제 가능)
