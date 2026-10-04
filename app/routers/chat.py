@@ -58,7 +58,6 @@ def create_chat(
             response_text = generate_response_langchain_sllm(body.message, data)
         elif classification == "get_policy":
             context = search_policy(body.message)
-            # response_text = generate_response(body.message, context)
             response_text = generate_response_langchain(body.message, context)
             # # 최근대화고려 작업(Window Memory): 응답시 최근 5턴 대화 기록을 함께 전달
             # history = load_chat_history(current_member.id, db)
