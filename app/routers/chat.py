@@ -25,8 +25,6 @@ from langsmith import traceable
 from sqlalchemy.orm import Session
 
 router = APIRouter(prefix="/chats", tags=["chat"])
-
-
 @router.post("", response_model=schemas.ChatResponse, status_code=status.HTTP_201_CREATED)
 # @traceable 
 def create_chat(
@@ -44,8 +42,8 @@ def create_chat(
         response_text = cached_response
 
     else:
-        classification = classify_message(body.message)
-        # classification = classify_message_langchain(body.message)
+        # classification = classify_message(body.message)
+        classification = classify_message_langchain(body.message)
         print(classification)
         if classification == "get_api":
             response_text = process_api_request(body.message, db, current_member.id)
@@ -63,8 +61,8 @@ def create_chat(
             # history = load_chat_history(current_member.id, db)
             # response_text = generate_response_langchain_memory(body.message, context, history)
         else:
-            response_text = generate_response(body.message)
-            # response_text = generate_general_response(body.message)
+            # response_text = generate_response(body.message)
+            response_text = generate_general_response(body.message)
 
         # redis stack에 질문/응답을 저장
         # store: member_id 포함 (flush_by_member로 사용자별 선택 삭제 가능)
