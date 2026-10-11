@@ -41,19 +41,6 @@ def select_action_node(state: ChatGraphState) -> dict:
     return {"selected_action_name": action_name, "selected_action_args": args}
 
 
-# 기존: 실행 실패 시 바로 에러 메시지로 END (재시도 없음)
-# def execute_action_node(state: ChatGraphState) -> dict:
-#     try:
-#         response = execute_action(
-#             state["selected_action_name"],
-#             state["selected_action_args"],
-#             state["db"],
-#             state["member_id"],
-#         )
-#     except Exception as e:
-#         print(f"[LangGraph][Action] 실행 실패 | error={e}")
-#         response = f"요청 처리 중 오류가 발생했습니다: {str(e)}"
-#     return {"response": response}
 MAX_ATTEMPTS = 2  # execute_action 실패 시 select_action으로 되돌아가 재시도할 최대 횟수
 def execute_action_node(state: ChatGraphState) -> dict:
     try:
