@@ -180,9 +180,6 @@ def build_chat_graph():
 
 
 chat_graph = build_chat_graph()
-
-
-
 # 기존 chat.py의 create_chat() 내부 분기(캐시 조회 ~ 응답 생성) 진입 함수
 def run_chat_graph(message: str, db, member) -> str:
     # Graph 실행을 시작할 때 StateGraph객체의 invoke함수를 실행하여 초기 State 주입
