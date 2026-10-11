@@ -116,7 +116,3 @@ def build_get_api_graph():
 
 
 get_api_graph = build_get_api_graph()
-
-# 그래프 구조를 서버 기동 시 1회 콘솔에 출력 (노드/엣지 전체를 한눈에 확인용)
-print("[LangGraph][GetApi] get_api_graph 구조 (mermaid) ↓↓↓")
-print(get_api_graph.get_graph().draw_mermaid())

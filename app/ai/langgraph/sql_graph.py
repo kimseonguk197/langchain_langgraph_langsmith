@@ -133,7 +133,3 @@ def build_sql_graph():
 
 # 모듈 로드 시 1회 컴파일하여 재사용 (기존 llm_sql 등 모듈 레벨 인스턴스와 동일한 패턴)
 sql_graph = build_sql_graph()
-
-# 그래프 구조를 서버 기동 시 1회 콘솔에 출력 (사이클 포함 노드/엣지 전체를 한눈에 확인용)
-print("[LangGraph][SQL] sql_graph 구조 ↓↓↓")
-print(sql_graph.get_graph().draw_mermaid())

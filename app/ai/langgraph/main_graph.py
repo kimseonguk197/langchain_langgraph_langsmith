@@ -181,9 +181,6 @@ def build_chat_graph():
 
 chat_graph = build_chat_graph()
 
-# 그래프 구조를 서버 기동 시 1회 콘솔에 출력 (노드/엣지 전체를 한눈에 확인용)
-print("[LangGraph] chat_graph 구조 (mermaid) ↓↓↓")
-print(chat_graph.get_graph().draw_mermaid())
 
 
 # 기존 chat.py의 create_chat() 내부 분기(캐시 조회 ~ 응답 생성) 진입 함수
