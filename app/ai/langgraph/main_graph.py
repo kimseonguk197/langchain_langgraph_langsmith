@@ -6,7 +6,6 @@ from langgraph.types import Command
 
 from app.ai.langgraph.state import ChatGraphState
 from app.ai.langgraph.get_api_graph import get_api_graph
-# HITL : action_graph의 확인 대기(interrupt) 상태 조회/재개(resume)를 위해 직접 참조.
 from app.ai.langgraph.action_graph import action_graph
 
 from app.ai.llm_use.llm_calling_langchain import classify_message_langchain
@@ -20,6 +19,21 @@ from app.ai.rag.semantic_cache import semantic_cache
 
 # LangSmith 연동은 .env(LANGSMITH_TRACING/LANGSMITH_API_KEY/LANGSMITH_PROJECT)에서 설정.
 # 이 그래프 전용 설정이 아니라 앱 전역 트레이싱 스위치라 여기 두지 않음.
+
+# checkpointer를 위한 코드
+import os
+from psycopg_pool import ConnectionPool
+from psycopg.rows import dict_row
+from langgraph.checkpoint.postgres import PostgresSaver
+
+main_checkpointer_connector = ConnectionPool(
+    conninfo=os.getenv("DATABASE_URL"),
+    max_size=10,
+    kwargs={"autocommit": True, "row_factory": dict_row}, #dict_row : 조회 결과를 dict 형태로 반환
+)
+main_checkpointer = PostgresSaver(main_checkpointer_connector)
+main_checkpointer.setup()  # checkpoints 관련 테이블이 없다면 자동 생성
+
 
 # 캐시 확인 및 state갱신
 def check_cache_node(state: ChatGraphState) -> dict:
@@ -57,9 +71,19 @@ def route_after_classify_message(state: ChatGraphState) -> str:
     return decision
 
 
-# get_api(1차 분류) 이후의 2차 분류(QUERY/ACTION/GENERAL)와 그 라우팅은 get_api_graph.py로 분리됨
 MAX_RECLASSIFY = 1  # sql_graph/action_graph가 재시도까지 소진하고도 실패(escalate)했을 때 1차 분류로 돌아갈 최대 횟수
 def run_get_api_node(state: ChatGraphState) -> dict:
+    print("[LangGraph] run_get_api 진입 (get_api_graph 서브그래프 실행 결과 조회)")
+    # 1차에서 재분류작업 : 2차 분류 이후의 작업에서 처리 실패 날경우 1차에서부터 재작업
+    reclassify_count = state.get("reclassify_count", 0)
+    # sql_graph/action_graph가 내부 재시도를 다 쓰고도 실패해서 올려보낸 escalate 신호 확인
+    if state.get("escalate") and reclassify_count < MAX_RECLASSIFY:
+        print(f"[LangGraph] get_api 처리 실패(escalate) → 1차 분류부터 재시도 ({reclassify_count + 1}/{MAX_RECLASSIFY})")
+        # state가 재분류 이후에도 그대로 이어지므로, 이전 실패값(escalate/retry_count)은 초기화
+        return {"reclassify": True, "reclassify_count": reclassify_count + 1, "escalate": False, "retry_count": 0}
+    return {"reclassify": False}
+
+def run_get_api_node_hitl(state: ChatGraphState) -> dict:
     print("[LangGraph] run_get_api 진입 (get_api_graph 서브그래프 실행)")
     result = get_api_graph.invoke({
         "message": state["message"],
@@ -79,7 +103,6 @@ def run_get_api_node(state: ChatGraphState) -> dict:
         print(f"[LangGraph] get_api 처리 실패(escalate) → 1차 분류부터 재시도 ({reclassify_count + 1}/{MAX_RECLASSIFY})")
         return {"reclassify": True, "reclassify_count": reclassify_count + 1}
     return {"reclassify": False, "response": result["response"]}
-
 
 def route_after_get_api(state: ChatGraphState) -> str:
     if state.get("reclassify"):
@@ -126,7 +149,11 @@ def build_chat_graph():
 
     graph.add_node("check_cache", check_cache_node)
     graph.add_node("classify_message", classify_message_node)
+    # 컴파일된 get_api_graph를 노드로 직접 추가
+    graph.add_node("get_api_graph", get_api_graph)
     graph.add_node("run_get_api", run_get_api_node)
+    # HITL인 경우
+    # graph.add_node("run_get_api_node_hitl", run_get_api_node_hitl)
     graph.add_node("run_profile", run_profile_node)
     graph.add_node("run_policy", run_policy_node)
     graph.add_node("run_general", run_general_node)
@@ -137,7 +164,7 @@ def build_chat_graph():
 #       │(miss)
 #       ▼
 #   classify_message ◀────────────────────────────┐(sql_graph/action_graph 재시도까지 소진 후 실패: escalate, 최대 MAX_RECLASSIFY회)
-#       │(get_api)──▶ run_get_api (get_api_graph 서브그래프: QUERY/ACTION/GENERAL) ─┘
+#       │(get_api)──▶ get_api_graph (서브그래프: QUERY/ACTION/GENERAL) ──▶ run_get_api ─┘
 #       │(get_my_profile)──▶ run_profile ─────────────────────────────────────────────────────┐
 #       │(get_policy)──────▶ run_policy ───────────────────────────────────────────────────────┤
 #       └(그 외)───────────▶ run_general ───────────────────────────────────────────────────────┤
@@ -155,17 +182,23 @@ def build_chat_graph():
         "classify_message",   #classify_message는 앞의 분기에서 선택됐을 때만 실행
         route_after_classify_message,
         {
-            "api": "run_get_api", #api값이 선택된 경우, get_api_graph 서브그래프 실행
+            "api": "get_api_graph", #api값이 선택된 경우, get_api_graph 서브그래프 실행.
+            # HITL인 경우 위 코드 주석 후 아래 주석해제
+            # "api": "run_get_api_node_hitl",
             "profile": "run_profile",
             "policy": "run_policy",
             "general": "run_general",
         },
     )
+    # get_api_graph 실행 후 run_get_api에서 escalate 확인
+    graph.add_edge("get_api_graph", "run_get_api")
 
     # sql_graph/action_graph가 재시도까지 소진하고도 실패(escalate)했으면 classify_message로 되돌아가
     # 1차 분류부터 재시도(최대 MAX_RECLASSIFY회)
     graph.add_conditional_edges(
         "run_get_api",
+        # HITL인 경우 위 코드 주석후 아래 주석해제
+        # "run_get_api_node_hitl",
         route_after_get_api,
         # HITL : pending은 사람확인 요청 상태이고, 아직 response도 없으므로 store_cache로 보내지 않고 바로 END.
         {"reclassify": "classify_message", "done": "store_cache", "pending": END},
@@ -177,7 +210,8 @@ def build_chat_graph():
     graph.add_edge("store_cache", END)
 
     return graph.compile()
-
+    # checkpointer 적용
+    # return graph.compile(checkpointer=main_checkpointer)
 
 chat_graph = build_chat_graph()
 # 기존 chat.py의 create_chat() 내부 분기(캐시 조회 ~ 응답 생성) 진입 함수
@@ -190,6 +224,7 @@ def run_chat_graph(message: str, db, member) -> str:
         "member_id": member.id,
     })
     return final_state["response"]
+
 
 def run_chat_graph_hitl(message: str, db, member) -> str:
     # HITL 순서3. 중단여부 확인 및 재개 요청
