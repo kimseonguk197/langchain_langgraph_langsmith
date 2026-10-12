@@ -146,9 +146,9 @@ def build_action_graph():
     graph.add_edge("cannot_process", END)
     graph.add_edge("action_failed", END)
 
-    # return graph.compile()
+    return graph.compile()
     # execute_action 안의 interrupt()가 동작하려면 checkpointer가 필수.
-    return graph.compile(checkpointer=_checkpointer)
+    # return graph.compile(checkpointer=_checkpointer)
 
 
 # PostgresSaver는 (autocommit=True, row_factory=dict_row) 커넥션이 필요.
