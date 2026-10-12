@@ -1,7 +1,7 @@
 """
 LangSmith dataset을 이용해 '로컬' 챗봇 파이프라인을 실행/기록
 동작 방식:
-    1. LangSmith의 dataset 예제(inputs)를 읽어 run_chat_graph_hitl을 실행
+    1. LangSmith의 dataset 예제(inputs)를 읽어 run_chat_graph을 실행
     2. 실행 결과/트레이스를 LangSmith로 업로드해서 웹 UI의 Experiment 화면에서 확인
 
 사용법: python -m app.ai.langsmith.run_dataset
@@ -14,7 +14,7 @@ from langsmith import Client, evaluate
 
 from app import models
 from app.database import SessionLocal
-from app.ai.langgraph.main_graph import run_chat_graph_hitl
+from app.ai.langgraph.main_graph import run_chat_graph
 
 DATASET_NAME = "test-data"
 
@@ -30,12 +30,12 @@ def _get_test_member(db):
 
 
 # LangSmith가 dataset의 각 example.inputs를 이 함수에 그대로 넘겨준다.
-# 여기서 실제 로컬 챗봇 파이프라인(run_chat_graph_hitl)을 호출하는 게 이 스크립트의 핵심.
+# 여기서 실제 로컬 챗봇 파이프라인(run_chat_graph)을 호출하는 게 이 스크립트의 핵심.
 def target(inputs: dict) -> dict:
     db = SessionLocal()
     try:
         member = _get_test_member(db)
-        response = run_chat_graph_hitl(inputs["message"], db, member)
+        response = run_chat_graph(inputs["message"], db, member)
         return {"response": response}
     finally:
         db.close()

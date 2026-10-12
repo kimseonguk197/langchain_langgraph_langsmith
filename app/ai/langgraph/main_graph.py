@@ -46,15 +46,15 @@ def classify_message_node(state: ChatGraphState) -> dict:
 def route_after_classify_message(state: ChatGraphState) -> str:
     classification = state.get("classification")
     if classification == "get_api":
-        decision = "api"
+        result = "api"
     elif classification == "get_my_profile":
-        decision = "profile"
+        result = "profile"
     elif classification == "get_policy":
-        decision = "policy"
+        result = "policy"
     else:
-        decision = "general"
-    print(f"[LangGraph] route_after_classify_message -> {decision}")
-    return decision
+        result = "general"
+    print(f"[LangGraph] route_after_classify_message -> {result}")
+    return result
 
 
 MAX_RECLASSIFY = 1  # sql_graph/action_graph가 재시도까지 소진하고도 실패(escalate)했을 때 1차 분류로 돌아갈 최대 횟수
@@ -163,10 +163,11 @@ def build_chat_graph():
             graph.add_edge(node, "store_cache")
 
     graph.add_edge("store_cache", END)
-    return graph.compile()
+    # return graph.compile()
 
     # checkpointer 주입
-    # return graph.compile(checkpointer=main_checkpointer)
+    # HITL 적용
+    return graph.compile(checkpointer=main_checkpointer)
 
 chat_graph = build_chat_graph()
 # 기존 chat.py의 create_chat() 내부 분기(캐시 조회 ~ 응답 생성) 진입 함수
@@ -192,7 +193,7 @@ def run_chat_graph(message: str, db, member) -> str:
 
 def run_chat_graph_hitl(message: str, db, member) -> str:
     # HITL 순서3. 중단여부 확인 및 재개 요청
-    # get_state시에 chat_graph에 붙어있는 checkpointer(=PostgresSaver)가 thread_id로 DB 조회
+    # get_state함수를 통해 thread_id로 DB 조회
     # 실행완료되지 않은 checkpoint가 있다면(next가 남아있다면), 사용자의 응답에 따라 멈춘 지점부터 재실행
     thread_id = f"chat-member-{member.id}"
     if chat_graph.get_state({"configurable": {"thread_id": thread_id}}).next:
