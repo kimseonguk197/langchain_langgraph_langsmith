@@ -1,13 +1,12 @@
 # 전체 챗 파이프라인의 LangGraph 버전 (최상위 오케스트레이션 그래프)
 
 from langgraph.graph import StateGraph, START, END
-#  대기 중인 action_graph를 사용자의 답변으로 재개(resume)하기 위해 필요.
+#  대기 중인 chat_graph(내부 action_graph)를 사용자의 답변으로 재개(resume)하기 위해 필요.
 from langgraph.types import Command
 from langchain_core.runnables import RunnableConfig
 
 from app.ai.langgraph.state import ChatGraphState
 from app.ai.langgraph.get_api_graph import get_api_graph
-from app.ai.langgraph.action_graph import action_graph
 
 from app.ai.llm_use.llm_calling_langchain import classify_message_langchain
 from app.ai.rag.retriever import search_policy
@@ -70,33 +69,9 @@ def run_get_api_node(state: ChatGraphState) -> dict:
         return {"reclassify": True, "reclassify_count": reclassify_count + 1, "escalate": False, "retry_count": 0}
     return {"reclassify": False}
 
-def run_get_api_node_hitl(state: ChatGraphState, config: RunnableConfig) -> dict:
-    print("[LangGraph] run_get_api 진입 (get_api_graph 서브그래프 실행)")
-    result = get_api_graph.invoke(
-        {
-            "message": state["message"],
-            "member_id": state["member_id"],
-        },
-        config={"configurable": {"db": config["configurable"]["db"]}},
-    )
-
-    # action_graph가 interrupt()로 확인을 기다리는 중이면 대기 상태를 그대로 상위(run_chat_graph)까지 전달
-    if result.get("pending_confirm"):
-        return {"pending_confirm": result["pending_confirm"]}
-
-    # 1차에서 재분류작업 : 2차 분류 이후의 작업에서 처리 실패 날경우 1차에서부터 재작업
-    reclassify_count = state.get("reclassify_count", 0)
-    # sql_graph/action_graph가 내부 재시도를 다 쓰고도 실패해서 올려보낸 escalate 신호 확인
-    if result.get("escalate") and reclassify_count < MAX_RECLASSIFY:
-        print(f"[LangGraph] get_api 처리 실패(escalate) → 1차 분류부터 재시도 ({reclassify_count + 1}/{MAX_RECLASSIFY})")
-        return {"reclassify": True, "reclassify_count": reclassify_count + 1}
-    return {"reclassify": False, "response": result["response"]}
-
 def route_after_get_api(state: ChatGraphState) -> str:
     if state.get("reclassify"):
         decision = "reclassify"
-    elif state.get("pending_confirm"):
-        decision = "pending"
     else:
         decision = "done"
     print(f"[LangGraph] route_after_get_api -> {decision}")
@@ -139,8 +114,6 @@ def build_chat_graph():
     # 컴파일된 get_api_graph를 노드로 직접 추가
     graph.add_node("get_api_graph", get_api_graph)
     graph.add_node("run_get_api", run_get_api_node)
-    # HITL인 경우
-    graph.add_node("run_get_api_node_hitl", run_get_api_node_hitl)
     graph.add_node("run_profile", run_profile_node)
     graph.add_node("run_policy", run_policy_node)
     graph.add_node("run_general", run_general_node)
@@ -169,9 +142,7 @@ def build_chat_graph():
         "classify_message",   #classify_message는 앞의 분기에서 선택됐을 때만 실행
         route_after_classify_message,
         {
-            # "api": "get_api_graph", #api값이 선택된 경우, get_api_graph 서브그래프 실행.
-            # HITL인 경우 위 코드 주석 후 아래 주석해제
-            "api": "run_get_api_node_hitl",
+            "api": "get_api_graph", #api값이 선택된 경우, get_api_graph 서브그래프 실행.
             "profile": "run_profile",
             "policy": "run_policy",
             "general": "run_general",
@@ -183,71 +154,75 @@ def build_chat_graph():
     # sql_graph/action_graph가 재시도까지 소진하고도 실패(escalate)했으면 classify_message로 되돌아가
     # 1차 분류부터 재시도(최대 MAX_RECLASSIFY회)
     graph.add_conditional_edges(
-        # "run_get_api",
-        # HITL인 경우 위 코드 주석후 아래 주석해제
-        "run_get_api_node_hitl",
+        "run_get_api",
         route_after_get_api,
-        {"reclassify": "classify_message", "done": "store_cache", "pending": END},
+        {"reclassify": "classify_message", "done": "store_cache"},
     )
     # 나머지 분기는 항상 store_cache로 수렴
     for node in ("run_profile", "run_policy", "run_general"):
             graph.add_edge(node, "store_cache")
 
     graph.add_edge("store_cache", END)
-
     return graph.compile()
-    # checkpointer 적용
+
+    # checkpointer 주입
     # return graph.compile(checkpointer=main_checkpointer)
 
 chat_graph = build_chat_graph()
 # 기존 chat.py의 create_chat() 내부 분기(캐시 조회 ~ 응답 생성) 진입 함수
 def run_chat_graph(message: str, db, member) -> str:
     # Graph 실행을 시작할 때 StateGraph객체의 invoke함수를 실행하여 초기 State 주입
-    # db/member는 checkpoint에 저장되면 안 되므로 state가 아닌 config로 전달
+    thread_id = f"chat-member-{member.id}"
     final_state = chat_graph.invoke(
         {
             "message": message,
             "member_id": member.id,
+            "retry_count": 0,
+            "reclassify_count": 0,
+            "escalate": False,
         },
-        config={"configurable": {"db": db, "member": member}},
+        # db/member는 checkpoint에 저장되면 안 되므로 state가 아닌 config로 전달
+        config={"configurable": {
+            #"thread_id": thread_id, # checkpointer가 붙은 그래프는 thread_id 필수
+            "db": db, 
+            "member": member}},
     )
     return final_state["response"]
 
 
 def run_chat_graph_hitl(message: str, db, member) -> str:
     # HITL 순서3. 중단여부 확인 및 재개 요청
-    # get_state시에 action_graph에 붙어있는 checkpointer(=PostgresSaver)가 DB 조회
-    # 실행완료되지 않은 checkpoint가 있다면, 사용자의 응답에 따라 action_graph 재실행
-    thread_id = f"member-{member.id}"
-    if action_graph.get_state({"configurable": {"thread_id": thread_id}}).next:
+    # get_state시에 chat_graph에 붙어있는 checkpointer(=PostgresSaver)가 thread_id로 DB 조회
+    # 실행완료되지 않은 checkpoint가 있다면(next가 남아있다면), 사용자의 응답에 따라 멈춘 지점부터 재실행
+    thread_id = f"chat-member-{member.id}"
+    if chat_graph.get_state({"configurable": {"thread_id": thread_id}}).next:
         # 사용자의 답변에 따라 decision을 approve로 세팅
         decision = "approve" if message.strip() in ("예", "네", "y", "yes", "승인") else "deny"
         print(f"[LangGraph] action 실행 확인 재개 | member_id={member.id} | 답변={message} -> {decision}")
         # 재개 지시
-        # 1.execute_action_node에 decision명령
-        # 2.DB의 checkpoint의 내용에 저장된 execute_action으로 직행
-        # 3.checkpoint의 내용을 기반하여 ActionGraphState State생성 후 주입
-        result = action_graph.invoke(
+        # 1.checkpoint에 저장된 멈춘 지점(get_api_graph > action_graph > execute_action)으로 직행
+        # 2.execute_action의 interrupt()에 decision 문자열 전달
+        final_state = chat_graph.invoke(
             Command(resume=decision),
-            config={"configurable": {"thread_id": thread_id, "db": db}},
+            config={"configurable": {"thread_id": thread_id, "db": db, "member": member}},
         )
-        return result["response"]
-
-    # Graph 실행을 시작할 때 StateGraph객체의 invoke함수를 실행하여 초기 State 주입
-    # db/member는 checkpoint에 저장되면 안 되므로 state가 아닌 config로 전달
-    final_state = chat_graph.invoke(
-        {
-            "message": message,
-            "member_id": member.id,
-        },
-        config={"configurable": {"db": db, "member": member}},
-    )
+    else:
+        final_state = chat_graph.invoke(
+            {
+                "message": message,
+                "member_id": member.id,
+                "retry_count": 0,
+                "reclassify_count": 0,
+                "escalate": False,
+            },
+            config={"configurable": {"thread_id": thread_id, "db": db, "member": member}},
+        )
 
     # HITL 순서2. 사용자에게 확인 문구 전달
     # action 실행 전 확인 대기(interrupt) 상태면, 최종 응답 대신 확인 메시지를 반환
     # 다음 메시지가 들어오면 위 resume 분기에서 이어서 처리
-    if final_state.get("pending_confirm"):
-        payload = final_state["pending_confirm"]
+    if final_state.get("__interrupt__"):
+        payload = final_state["__interrupt__"][0].value
         return (
             f"다음 작업을 진행할까요?\n"
             f"- 작업: {payload.get('action_name')}\n"

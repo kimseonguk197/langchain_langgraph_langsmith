@@ -24,9 +24,6 @@ class ChatGraphState(TypedDict, total=False):
     reclassify: bool  # 1차 재분류가 다시 됐다면 True
     reclassify_count: int  # 1차 분류로 되돌아 온 횟수(1번만 추가 재분류처리)
 
-    # HITL 을 위한 변수
-    pending_confirm: Optional[dict]
-
     # sql_graph 서브그래프() 상태
     current_sql: str
     corrected_sql: Optional[str]

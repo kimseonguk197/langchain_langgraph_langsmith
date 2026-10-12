@@ -1,7 +1,6 @@
 # get_api(1차 분류) 이후 서브그래프: 2차 분류(QUERY/ACTION/GENERAL)와 그 라우팅
 
 from langgraph.graph import END, StateGraph, START
-from langchain_core.runnables import RunnableConfig
 
 from app.ai.langgraph.state import ChatGraphState
 from app.ai.langgraph.sql_graph import sql_graph
@@ -17,31 +16,6 @@ def classify_intent_node(state: ChatGraphState) -> dict:
     intent = classify_intent(state["message"])
     print(f"[LangGraph][GetApi] 2차 분류 결과: {intent}")
     return {"intent": intent}
-
-
-def run_action_node_hitl(state: ChatGraphState, config: RunnableConfig) -> dict:
-    # HITL 순서0. action_graph 최초실행
-    # action_graph는 회원별로 확인 대기(interrupt) 상태를 이어갈 수 있어야 하므로
-    # member_id 기반 thread_id로 확인. db는 checkpoint에 저장되면 안 되므로 config로 전달.
-    thread_id = f"member-{state['member_id']}"
-    result = action_graph.invoke(
-        {
-            "message": state["message"],
-            "member_id": state["member_id"],
-        },
-        # RunnableConfig객체를 주입
-        config={"configurable": {"thread_id": thread_id, "db": config["configurable"]["db"]}},
-    )
-
-    # HITL 순서1 interrupt 감지, 상위 그래프에 pending_confirm 전달
-    # execute_action 진입 전 interrupt()가 걸려 result에 __interrupt__가 담겨 돌아올땐 main_graph까지 "확인 대기" 상태를 그대로 전달
-    if result.get("__interrupt__"):
-        confirm_payload = result["__interrupt__"][0].value
-        print(f"[LangGraph][GetApi] action 실행 확인 대기 | {confirm_payload}")
-        return {"pending_confirm": confirm_payload}
-
-    # escalate 플래그도 함께 전달 (main_graph가 재시도까지 소진한 실패를 감지할 수 있도록).
-    return {"response": result["response"], "escalate": result.get("escalate", False)}
 
 
 def run_general_node(state: ChatGraphState) -> dict:
@@ -68,9 +42,7 @@ def build_get_api_graph():
     graph.add_node("classify_intent", classify_intent_node)
     # 컴파일된 서브그래프를 노드로 직접 추가
     graph.add_node("sql_graph", sql_graph)
-    # graph.add_node("action_graph", action_graph)
-    # HITL인 경우 위 코드 주석 후 아래 코드 주석해제
-    graph.add_node("action_graph", run_action_node_hitl)
+    graph.add_node("action_graph", action_graph)
     graph.add_node("run_general", run_general_node)
 
     # START : 그래프를 실행할 때의 진입점
