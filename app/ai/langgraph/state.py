@@ -6,9 +6,8 @@ from typing import Any, Optional, TypedDict
 
 
 class ChatGraphState(TypedDict, total=False):
+    # db(Session)/member(ORM 객체)는 checkpoint에 직렬화할 수 없으므로 state가 아닌 매개변수(config(configurable))로 전달
     message: str
-    db: Any            
-    member: Any        
     member_id: int
 
     # 캐시여부
@@ -50,7 +49,6 @@ class ChatGraphState(TypedDict, total=False):
 # sql_graph 전용 State 
 class SqlGraphState(TypedDict, total=False):
     message: str
-    db: Any
     member_id: int
 
     # sql_graph 진행 상태
@@ -69,7 +67,6 @@ class SqlGraphState(TypedDict, total=False):
 # action_graph 전용 State
 class ActionGraphState(TypedDict, total=False):
     message: str
-    db: Any
     member_id: int
 
     # action_graph 진행 상태

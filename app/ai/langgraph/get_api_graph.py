@@ -1,6 +1,7 @@
 # get_api(1차 분류) 이후 서브그래프: 2차 분류(QUERY/ACTION/GENERAL)와 그 라우팅
 
 from langgraph.graph import END, StateGraph, START
+from langchain_core.runnables import RunnableConfig
 
 from app.ai.langgraph.state import ChatGraphState
 from app.ai.langgraph.sql_graph import sql_graph
@@ -18,7 +19,7 @@ def classify_intent_node(state: ChatGraphState) -> dict:
     return {"intent": intent}
 
 
-def run_action_node_hitl(state: ChatGraphState) -> dict:
+def run_action_node_hitl(state: ChatGraphState, config: RunnableConfig) -> dict:
     # HITL 순서0. action_graph 최초실행
     # action_graph는 회원별로 확인 대기(interrupt) 상태를 이어갈 수 있어야 하므로
     # member_id 기반 thread_id로 확인. db는 checkpoint에 저장되면 안 되므로 config로 전달.
@@ -29,7 +30,7 @@ def run_action_node_hitl(state: ChatGraphState) -> dict:
             "member_id": state["member_id"],
         },
         # RunnableConfig객체를 주입
-        config={"configurable": {"thread_id": thread_id, "db": state["db"]}},
+        config={"configurable": {"thread_id": thread_id, "db": config["configurable"]["db"]}},
     )
 
     # HITL 순서1 interrupt 감지, 상위 그래프에 pending_confirm 전달
@@ -68,7 +69,7 @@ def build_get_api_graph():
     # 컴파일된 서브그래프를 노드로 직접 추가
     graph.add_node("sql_graph", sql_graph)
     # graph.add_node("action_graph", action_graph)
-    # HITL인 경우
+    # HITL인 경우 위 코드 주석 후 아래 코드 주석해제
     graph.add_node("action_graph", run_action_node_hitl)
     graph.add_node("run_general", run_general_node)
 

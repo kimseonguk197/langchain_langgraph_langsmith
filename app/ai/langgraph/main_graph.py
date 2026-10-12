@@ -1,8 +1,9 @@
 # 전체 챗 파이프라인의 LangGraph 버전 (최상위 오케스트레이션 그래프)
 
 from langgraph.graph import StateGraph, START, END
-# HITL : 대기 중인 action_graph를 사용자의 답변으로 재개(resume)하기 위해 필요.
+#  대기 중인 action_graph를 사용자의 답변으로 재개(resume)하기 위해 필요.
 from langgraph.types import Command
+from langchain_core.runnables import RunnableConfig
 
 from app.ai.langgraph.state import ChatGraphState
 from app.ai.langgraph.get_api_graph import get_api_graph
@@ -16,24 +17,10 @@ from app.ai.llm_use.llm_calling_langchain import (
     generate_general_response,
 )
 from app.ai.rag.semantic_cache import semantic_cache
+from app.ai.langgraph.check_pointer import main_checkpointer
 
 # LangSmith 연동은 .env(LANGSMITH_TRACING/LANGSMITH_API_KEY/LANGSMITH_PROJECT)에서 설정.
 # 이 그래프 전용 설정이 아니라 앱 전역 트레이싱 스위치라 여기 두지 않음.
-
-# checkpointer를 위한 코드
-import os
-from psycopg_pool import ConnectionPool
-from psycopg.rows import dict_row
-from langgraph.checkpoint.postgres import PostgresSaver
-
-main_checkpointer_connector = ConnectionPool(
-    conninfo=os.getenv("DATABASE_URL"),
-    max_size=10,
-    kwargs={"autocommit": True, "row_factory": dict_row}, #dict_row : 조회 결과를 dict 형태로 반환
-)
-main_checkpointer = PostgresSaver(main_checkpointer_connector)
-main_checkpointer.setup()  # checkpoints 관련 테이블이 없다면 자동 생성
-
 
 # 캐시 확인 및 state갱신
 def check_cache_node(state: ChatGraphState) -> dict:
@@ -83,15 +70,16 @@ def run_get_api_node(state: ChatGraphState) -> dict:
         return {"reclassify": True, "reclassify_count": reclassify_count + 1, "escalate": False, "retry_count": 0}
     return {"reclassify": False}
 
-def run_get_api_node_hitl(state: ChatGraphState) -> dict:
+def run_get_api_node_hitl(state: ChatGraphState, config: RunnableConfig) -> dict:
     print("[LangGraph] run_get_api 진입 (get_api_graph 서브그래프 실행)")
-    result = get_api_graph.invoke({
-        "message": state["message"],
-        "db": state["db"],
-        "member_id": state["member_id"],
-    })
+    result = get_api_graph.invoke(
+        {
+            "message": state["message"],
+            "member_id": state["member_id"],
+        },
+        config={"configurable": {"db": config["configurable"]["db"]}},
+    )
 
-    # HITL
     # action_graph가 interrupt()로 확인을 기다리는 중이면 대기 상태를 그대로 상위(run_chat_graph)까지 전달
     if result.get("pending_confirm"):
         return {"pending_confirm": result["pending_confirm"]}
@@ -107,7 +95,6 @@ def run_get_api_node_hitl(state: ChatGraphState) -> dict:
 def route_after_get_api(state: ChatGraphState) -> str:
     if state.get("reclassify"):
         decision = "reclassify"
-    # HITL
     elif state.get("pending_confirm"):
         decision = "pending"
     else:
@@ -116,9 +103,9 @@ def route_after_get_api(state: ChatGraphState) -> str:
     return decision
 
 
-def run_profile_node(state: ChatGraphState) -> dict:
+def run_profile_node(state: ChatGraphState, config: RunnableConfig) -> dict:
     print("[LangGraph] run_profile 진입")
-    member = state["member"]
+    member = config["configurable"]["member"]
     data = f"- 회원번호: {member.id} / email: {member.email} / 회원명: {member.name} / age: {member.age} "
     response = generate_response_langchain_sllm(state["message"], data)
     return {"response": response}
@@ -153,7 +140,7 @@ def build_chat_graph():
     graph.add_node("get_api_graph", get_api_graph)
     graph.add_node("run_get_api", run_get_api_node)
     # HITL인 경우
-    # graph.add_node("run_get_api_node_hitl", run_get_api_node_hitl)
+    graph.add_node("run_get_api_node_hitl", run_get_api_node_hitl)
     graph.add_node("run_profile", run_profile_node)
     graph.add_node("run_policy", run_policy_node)
     graph.add_node("run_general", run_general_node)
@@ -182,9 +169,9 @@ def build_chat_graph():
         "classify_message",   #classify_message는 앞의 분기에서 선택됐을 때만 실행
         route_after_classify_message,
         {
-            "api": "get_api_graph", #api값이 선택된 경우, get_api_graph 서브그래프 실행.
+            # "api": "get_api_graph", #api값이 선택된 경우, get_api_graph 서브그래프 실행.
             # HITL인 경우 위 코드 주석 후 아래 주석해제
-            # "api": "run_get_api_node_hitl",
+            "api": "run_get_api_node_hitl",
             "profile": "run_profile",
             "policy": "run_policy",
             "general": "run_general",
@@ -196,11 +183,10 @@ def build_chat_graph():
     # sql_graph/action_graph가 재시도까지 소진하고도 실패(escalate)했으면 classify_message로 되돌아가
     # 1차 분류부터 재시도(최대 MAX_RECLASSIFY회)
     graph.add_conditional_edges(
-        "run_get_api",
+        # "run_get_api",
         # HITL인 경우 위 코드 주석후 아래 주석해제
-        # "run_get_api_node_hitl",
+        "run_get_api_node_hitl",
         route_after_get_api,
-        # HITL : pending은 사람확인 요청 상태이고, 아직 response도 없으므로 store_cache로 보내지 않고 바로 END.
         {"reclassify": "classify_message", "done": "store_cache", "pending": END},
     )
     # 나머지 분기는 항상 store_cache로 수렴
@@ -217,12 +203,14 @@ chat_graph = build_chat_graph()
 # 기존 chat.py의 create_chat() 내부 분기(캐시 조회 ~ 응답 생성) 진입 함수
 def run_chat_graph(message: str, db, member) -> str:
     # Graph 실행을 시작할 때 StateGraph객체의 invoke함수를 실행하여 초기 State 주입
-    final_state = chat_graph.invoke({
-        "message": message,
-        "db": db,
-        "member": member,
-        "member_id": member.id,
-    })
+    # db/member는 checkpoint에 저장되면 안 되므로 state가 아닌 config로 전달
+    final_state = chat_graph.invoke(
+        {
+            "message": message,
+            "member_id": member.id,
+        },
+        config={"configurable": {"db": db, "member": member}},
+    )
     return final_state["response"]
 
 
@@ -246,12 +234,14 @@ def run_chat_graph_hitl(message: str, db, member) -> str:
         return result["response"]
 
     # Graph 실행을 시작할 때 StateGraph객체의 invoke함수를 실행하여 초기 State 주입
-    final_state = chat_graph.invoke({
-        "message": message,
-        "db": db,
-        "member": member,
-        "member_id": member.id,
-    })
+    # db/member는 checkpoint에 저장되면 안 되므로 state가 아닌 config로 전달
+    final_state = chat_graph.invoke(
+        {
+            "message": message,
+            "member_id": member.id,
+        },
+        config={"configurable": {"db": db, "member": member}},
+    )
 
     # HITL 순서2. 사용자에게 확인 문구 전달
     # action 실행 전 확인 대기(interrupt) 상태면, 최종 응답 대신 확인 메시지를 반환

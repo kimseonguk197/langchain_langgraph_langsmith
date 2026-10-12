@@ -14,6 +14,7 @@ from app.ai.api_use.query.executor import execute_sql
 from app.ai.api_use.query.response import format_sql_result, format_error_response
 from app.ai.langgraph.state import SqlGraphState
 from app.ai.langgraph.state import ChatGraphState
+from langchain_core.runnables import RunnableConfig
 
 # 기존 sql_pipeline.py의 `for attempt in range(3)`와 동일한 총 시도 횟수
 MAX_ATTEMPTS = 3
@@ -59,10 +60,10 @@ def route_after_validate(state: ChatGraphState) -> str:
 
 
 
-def execute_sql_node(state: ChatGraphState) -> dict:
+def execute_sql_node(state: ChatGraphState, config: RunnableConfig) -> dict:
     try:
         results = execute_sql(
-            state["db"],
+            config["configurable"]["db"],
             state["corrected_sql"],
             {"current_member_id": state["member_id"]},
         )

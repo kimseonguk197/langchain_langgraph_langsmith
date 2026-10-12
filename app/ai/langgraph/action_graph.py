@@ -43,12 +43,12 @@ def select_action_node(state: ChatGraphState) -> dict:
 
 
 MAX_ATTEMPTS = 2  # execute_action 실패 시 select_action으로 되돌아가 재시도할 최대 횟수
-def execute_action_node(state: ChatGraphState) -> dict:
+def execute_action_node(state: ChatGraphState, config: RunnableConfig) -> dict:
     try:
         response = execute_action(
             state["selected_action_name"],
             state["selected_action_args"],
-            state["db"],
+            config["configurable"]["db"],
             state["member_id"],
         )
         return {"response": response, "action_error": None}
@@ -71,7 +71,6 @@ def execute_action_node_hitl(state: ChatGraphState, config: RunnableConfig) -> d
         print(f"[LangGraph][Action] 사용자가 실행을 취소함 | action={state['selected_action_name']}")
         return {"response": "요청하신 작업을 취소했습니다.", "action_error": None}
 
-    # db는 run_action_node(get_api_graph.py)에서 주입하여, config(configurable)로 전달
     db = config["configurable"]["db"]
     try:
         response = execute_action(
@@ -122,7 +121,7 @@ def build_action_graph():
     graph.add_node("classify_category", classify_category_node)
     graph.add_node("select_action", select_action_node)
     # graph.add_node("execute_action", execute_action_node)
-    # HITL 적용
+    # HITL 적용 시 위 코드 주석 후 아래 코드 주석 해제
     graph.add_node("execute_action", execute_action_node_hitl)
     graph.add_node("cannot_process", cannot_process_node)
     graph.add_node("action_failed", action_failed_node)
