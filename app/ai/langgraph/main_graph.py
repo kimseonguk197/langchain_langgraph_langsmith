@@ -163,11 +163,11 @@ def build_chat_graph():
             graph.add_edge(node, "store_cache")
 
     graph.add_edge("store_cache", END)
-    # return graph.compile()
+    return graph.compile()
 
     # checkpointer 주입
     # HITL 적용
-    return graph.compile(checkpointer=main_checkpointer)
+    # return graph.compile(checkpointer=main_checkpointer)
 
 chat_graph = build_chat_graph()
 # 기존 chat.py의 create_chat() 내부 분기(캐시 조회 ~ 응답 생성) 진입 함수
