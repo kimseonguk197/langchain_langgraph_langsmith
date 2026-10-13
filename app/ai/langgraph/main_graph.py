@@ -191,6 +191,10 @@ def run_chat_graph(message: str, db, member) -> str:
     return final_state["response"]
 
 
+
+
+
+# HITL을 위한 함수
 def run_chat_graph_hitl(message: str, db, member) -> str:
     # HITL 순서3. 중단여부 확인 및 재개 요청
     # get_state함수를 통해 thread_id로 DB 조회
