@@ -68,12 +68,11 @@ def execute_action_node_hitl(state: ChatGraphState, config: RunnableConfig) -> d
         print(f"[LangGraph][Action] 사용자가 실행을 취소함 | action={state['selected_action_name']}")
         return {"response": "요청하신 작업을 취소했습니다.", "action_error": None}
 
-    db = config["configurable"]["db"]
     try:
         response = execute_action(
             state["selected_action_name"],
             state["selected_action_args"],
-            db,
+            config["configurable"]["db"],
             state["member_id"],
         )
         return {"response": response, "action_error": None}
