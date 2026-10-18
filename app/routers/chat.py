@@ -26,7 +26,7 @@ from sqlalchemy.orm import Session
 
 router = APIRouter(prefix="/chats", tags=["chat"])
 @router.post("", response_model=schemas.ChatResponse, status_code=status.HTTP_201_CREATED)
-# @traceable 
+@traceable 
 def create_chat(
     body: schemas.ChatRequest,
     db: Session = Depends(get_db),
@@ -70,7 +70,7 @@ def create_chat(
 
     # # LangGraph 적용 : 캐시 조회부터 if/elif/else 분기 전체를 run_chat_graph줄로 대체
     # response_text = run_chat_graph(body.message, db, current_member)
-    # HITL 적용
+    # # HITL 적용
     # response_text = run_chat_graph_hitl(body.message, db, current_member)
 
 
@@ -89,22 +89,6 @@ def _format_profile(member: list) -> str:
     if not member:
         return "회원정보가 없습니다."
     return f"- 회원번호: {member.id} / email: {member.email} / 회원명: {member.name} / age: {member.age} "
-
-
-def classify_message_n8n(message: str, token: str) -> str:
-    try:
-        response = httpx.post(
-            "http://localhost:5678/webhook/3b79e5e5-c4ec-4cc0-8ed2-ce5a25476d52",
-            json={"message": message},
-            headers={"Authorization": f"Bearer {token}"},
-            timeout=30,
-        )
-        print(response.json())
-        return generate_response_langchain(message, response.json());
-    except (httpx.HTTPError, ValueError) as e:
-        print(f"[n8n classify] 호출 실패: {e}")
-        return "답변이 어려운 질문입니다."
-
 
 # 병렬 노드 + Reducer 병합 확인용 테스트
 from app.ai.langgraph.parallel_reducer_streaming import sandbox_graph
